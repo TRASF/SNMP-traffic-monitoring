@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Network Monitor</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+
+      th,
+      td {
+        border: 1px solid #ddd;
+        padding: 8px;
+        text-align: left;
+      }
+
+      th {
+        background-color: #f2f2f2;
+      }
+    </style>
+  </head>
+
+  <body>
+    <h1>Network Monitoring Data</h1>
+
+    <!-- System Information Section -->
+    <h2>System Information</h2>
+    <table>
+      <tr>
+        <td>System Name:</td>
+        <td id="sysName"></td>
+      </tr>
+      <tr>
+        <td>Description:</td>
+        <td id="sysDescr"></td>
+      </tr>
+      <tr>
+        <td>Uptime:</td>
+        <td id="sysUpTime"></td>
+      </tr>
+    </table>
+    <h2>Current Traffic</h2>
+    <table>
+      <tr>
+        <th>Flow</th>
+        <th>Current</th>
+        <th>Min</th>
+        <th>Max</th>
+        <th>Average</th>
+      </tr>
+      <tr>
+        <td>Inbound (ifInOctets)</td>
+        <td id="currentIn"></td>
+        <td id="minIn"></td>
+        <td id="maxIn"></td>
+        <td id="averageIn"></td>
+      </tr>
+      <tr>
+        <td>Outbound (ifOutOctets)</td>
+        <td id="currentOut"></td>
+        <td id="minOut"></td>
+        <td id="maxOut"></td>
+        <td id="averageOut"></td>
+      </tr>
+    </table>
+
+    <div>
+      <canvas id="currentTrafficChart"></canvas>
+      <canvas id="averageTrafficChart"></canvas>
+      <canvas id="minMaxInTrafficChart"></canvas>
+      <canvas id="minMaxOutTrafficChart"></canvas>
+    </div>
+
+    <script>
+      document.addEventListener("DOMContentLoaded", function () {
+        // Initialize system information elements
+        var sysName = document.getElementById("sysName");
+        var sysDescr = document.getElementById("sysDescr");
+        var sysUpTime = document.getElementById("sysUpTime");
+
+        // Initialize data elements
+        var currentIn = document.getElementById("currentIn");
+        var minIn = document.getElementById("minIn");
+        var maxIn = document.getElementById("maxIn");
+        var averageIn = document.getElementById("averageIn");
+        var currentOut = document.getElementById("currentOut");
+        var minOut = document.getElementById("minOut");
+        var maxOut = document.getElementById("maxOut");
+        var averageOut = document.getElementById("averageOut");
+
+        // Initialize chart contexts
+        var currentCtx = document
+          .getElementById("currentTrafficChart")
+          .getContext("2d");
+        var averageCtx = document
+          .getElementById("averageTrafficChart")
+          .getContext("2d");
+        var minMaxInCtx = document
+          .getElementById("minMaxInTrafficChart")
+          .getContext("2d");
+        var minMaxOutCtx = document
+          .getElementById("minMaxOutTrafficChart")
+          .getContext("2d");
+
+        // Define the charts
+        var currentTrafficChart = createChart(currentCtx, "Current Traffic", [
+          "Incoming",
+          "Outgoing",
+        ]);
+        var averageTrafficChart = createChart(averageCtx, "Average Traffic", [
+          "Average In",
+          "Average Out",
+        ]);
+        var minMaxInTrafficChart = createChart(
+          minMaxInCtx,
+          "Inbound Min/Max Traffic",
+          ["Min In", "Max In"]
+        );
+        var minMaxOutTrafficChart = createChart(
+          minMaxOutCtx,
+          "Outbound Min/Max Traffic",
+          ["Min Out", "Max Out"]
+        );
+
+        // Fetch data function
+        function fetchData() {
+          var xhr = new XMLHttpRequest();
+          xhr.onreadystatechange = function () {
+            if (this.readyState == 4 && this.status == 200) {
+              var data = JSON.parse(this.responseText);
+              var now = new Date().toLocaleTimeString();
+
+              // Update data elements
+              currentIn.innerHTML = data.in_current;
+              minIn.innerHTML = data.in_min;
+              maxIn.innerHTML = data.in_max;
+              averageIn.innerHTML = data.in_avg;
+              currentOut.innerHTML = data.out_current;
+              minOut.innerHTML = data.out_min;
+              maxOut.innerHTML = data.out_max;
+              averageOut.innerHTML = data.out_avg;
+
+              // Update charts
+              updateChartData(currentTrafficChart, now, [
+                data.in_current,
+                data.out_current,
+              ]);
+              updateChartData(averageTrafficChart, now, [
+                data.in_avg,
+                data.out_avg,
+              ]);
+              updateChartData(minMaxInTrafficChart, now, [
+                data.in_min,
+                data.in_max,
+              ]);
+              updateChartData(minMaxOutTrafficChart, now, [
+                data.out_min,
+                data.out_max,
+              ]);
+            }
+          };
+          xhr.open("GET", "/get_traffic_data", true);
+          xhr.send();
+        }
+
+        // Fetch system data function
+        function fetchSystemData() {
+          var xhr = new XMLHttpRequest();
+          xhr.onreadystatechange = function () {
+            if (this.readyState == 4 && this.status == 200) {
+              var data = JSON.parse(this.responseText);
+
+              // Extract and display system data
+              sysName.innerHTML = data.system_data["SNMPv2-MIB::sysName.0"];
+              sysDescr.innerHTML = data.system_data["SNMPv2-MIB::sysDescr.0"];
+              sysUpTime.innerHTML = formatUptime(
+                data.system_data["SNMPv2-MIB::sysUpTime.0"]
+              );
+            }
+          };
+          xhr.open("GET", "/get_system_data", true);
+          xhr.send();
+        }
+
+        // Function to format uptime
+        function formatUptime(uptimeTicks) {
+          // Assuming uptimeTicks is in hundredths of a second
+          var seconds = uptimeTicks / 100;
+          var hours = Math.floor(seconds / 3600);
+          seconds %= 3600;
+          var minutes = Math.floor(seconds / 60);
+          seconds = Math.floor(seconds % 60);
+          return `${hours} hours, ${minutes} minutes, ${seconds} seconds`;
+        }
+
+        // Create a chart with given context, title, and labels
+        function createChart(ctx, title, labels) {
+          return new Chart(ctx, {
+            type: "line",
+            data: {
+              labels: [], // Time Labels
+              datasets: labels.map((label, index) => ({
+                label: label,
+                data: [],
+                borderColor: getColor(index),
+                fill: false,
+                lineTension: 0.3,
+              })),
+            },
+            options: {
+              title: {
+                display: true,
+                text: title,
+              },
+              scales: {
+                xAxes: [
+                  {
+                    type: "realtime",
+                    realtime: {
+                      delay: 1000,
+                      refresh: 1000,
+                      duration: 120000,
+                    },
+                  },
+                ],
+              },
+            },
+          });
+        }
+
+        // Update chart data
+        function updateChartData(chart, label, data) {
+          chart.data.labels.push(label);
+          chart.data.datasets.forEach((dataset, index) => {
+            dataset.data.push(data[index]);
+          });
+          maintainRollingWindow(chart, 120);
+          chart.update();
+        }
+
+        // Maintain a rolling window of data
+        function maintainRollingWindow(chart, maxSize) {
+          if (chart.data.labels.length > maxSize) {
+            chart.data.labels.shift();
+            chart.data.datasets.forEach((dataset) => {
+              dataset.data.shift();
+            });
+          }
+        }
+
+        // Get color for chart
+        function getColor(index) {
+          var colors = ["blue", "green", "orange", "red", "purple", "yellow"];
+          return colors[index % colors.length];
+        }
+
+        // Fetch data at regular intervals
+        setInterval(fetchData, 1000);
+
+        // Initial data fetch
+        fetchData();
+
+        // Fetch data at regular intervals
+        setInterval(fetchSystemData, 10000);
+
+        // Initial data fetch
+        fetchSystemData();
+      });
+    </script>
+  </body>
+</html>
