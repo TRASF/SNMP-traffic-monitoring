@@ -1,4 +1,4 @@
 .devbox
 .venv
 .env
-.devbox.lock
+devbox.lock
